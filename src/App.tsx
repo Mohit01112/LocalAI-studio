@@ -25,8 +25,17 @@ interface ModelInfo {
 
 interface Attachment {
   name: string;
-  content: string;
+  mimeType: string;
+  data: string;
   size: number;
+  kind: "pdf" | "image";
+}
+
+interface ChatAttachment {
+  name: string;
+  mime_type: string;
+  data: string;
+  kind: "pdf" | "image";
 }
 
 interface ChatMessage {
@@ -329,8 +338,7 @@ function App() {
   async function handleFileSelect(
     event: ChangeEvent<HTMLInputElement>
   ) {
-    const file =
-      event.target.files?.[0];
+    const file = event.target.files?.[0];
 
     if (!file) {
       return;
@@ -338,77 +346,66 @@ function App() {
 
     setError("");
 
-    /*
-     * Keep the first implementation focused
-     * on text/code/data files that local LLMs
-     * can directly understand.
-     */
-    const allowedExtensions = [
-      ".txt",
-      ".md",
-      ".py",
-      ".js",
-      ".jsx",
-      ".ts",
-      ".tsx",
-      ".json",
-      ".csv",
-      ".html",
-      ".css",
-      ".xml",
-      ".yaml",
-      ".yml",
-      ".sql",
-      ".java",
-      ".c",
-      ".cpp",
-      ".h",
-      ".hpp",
-      ".rs",
-      ".go",
-      ".php",
-      ".rb",
-      ".sh",
-      ".bat",
-      ".log",
-    ];
+    const lowerName = file.name.toLowerCase();
 
-    const lowerName =
-      file.name.toLowerCase();
+    const isPdf =
+      file.type === "application/pdf" ||
+      lowerName.endsWith(".pdf");
 
-    const isTextFile =
-      file.type.startsWith("text/") ||
-      allowedExtensions.some(
-        (extension) =>
-          lowerName.endsWith(extension)
+    const isImage =
+      file.type.startsWith("image/") ||
+      /\\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(
+        lowerName
       );
 
-    if (!isTextFile) {
+    if (!isPdf && !isImage) {
       setError(
-        "For now, LocalAI Studio supports text, code and data files for chat attachments."
+        "For now, LocalAI Studio supports PDF and image files only."
       );
-
       event.target.value = "";
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > 10 * 1024 * 1024) {
       setError(
-        "Please select a file smaller than 5 MB."
+        "Please select a file smaller than 10 MB."
       );
-
       event.target.value = "";
       return;
     }
 
     try {
-      const content =
-        await file.text();
+      const buffer = await file.arrayBuffer();
+
+      let binary = "";
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+
+      for (
+        let i = 0;
+        i < bytes.length;
+        i += chunkSize
+      ) {
+        binary += String.fromCharCode(
+          ...bytes.subarray(
+            i,
+            Math.min(i + chunkSize, bytes.length)
+          )
+        );
+      }
+
+      const data = btoa(binary);
 
       setAttachment({
         name: file.name,
-        content,
+        mimeType:
+          file.type ||
+          (isPdf
+            ? "application/pdf"
+            : "application/octet-stream"),
+        data,
         size: file.size,
+        kind: isPdf ? "pdf" : "image",
       });
     } catch (err) {
       console.error(
@@ -544,8 +541,7 @@ function App() {
   }
 
   async function sendMessage() {
-    const message =
-      input.trim();
+    const message = input.trim();
 
     if (
       !message &&
@@ -567,12 +563,10 @@ function App() {
       setIsListening(false);
     }
 
-    const userMessage:
-      ChatMessage = {
+    const userMessage: ChatMessage = {
       role: "user",
       content: message,
-      attachment:
-        attachment ?? undefined,
+      attachment: attachment ?? undefined,
     };
 
     const conversation = [
@@ -580,34 +574,24 @@ function App() {
       userMessage,
     ];
 
-    /*
-     * The UI keeps the message clean,
-     * while the local model receives
-     * the attached file content.
-     */
-    const modelConversation =
-      conversation.map(
-        (chatMessage) => {
-          if (
-            chatMessage.attachment
-          ) {
-            return {
-              role: chatMessage.role,
-              content:
-                `${chatMessage.content}\n\n` +
-                `--- Attached file: ${chatMessage.attachment.name} ---\n\n` +
-                chatMessage.attachment.content +
-                `\n\n--- End attached file ---`,
-            };
-          }
+    const modelConversation = conversation.map(
+      (chatMessage) => ({
+        role: chatMessage.role,
+        content: chatMessage.content,
+      })
+    );
 
-          return {
-            role: chatMessage.role,
-            content:
-              chatMessage.content,
-          };
-        }
-      );
+    const requestAttachments: ChatAttachment[] =
+      attachment
+        ? [
+            {
+              name: attachment.name,
+              mime_type: attachment.mimeType,
+              data: attachment.data,
+              kind: attachment.kind,
+            },
+          ]
+        : [];
 
     setMessages(conversation);
     setInput("");
@@ -626,24 +610,18 @@ function App() {
           provider?: string;
           model?: string;
         }>("provider_chat", {
-          runtimeId:
-            selectedRuntime,
-
+          runtimeId: selectedRuntime,
           request: {
             model: selectedModel,
-
-            messages:
-              modelConversation,
-
+            messages: modelConversation,
+            attachments: requestAttachments,
             stream: false,
           },
         });
 
-      const assistantMessage:
-        ChatMessage = {
+      const assistantMessage: ChatMessage = {
         role: "assistant",
-        content:
-          response.message.content,
+        content: response.message.content,
       };
 
       const updatedMessages = [
@@ -651,13 +629,9 @@ function App() {
         assistantMessage,
       ];
 
-      setMessages(
-        updatedMessages
-      );
+      setMessages(updatedMessages);
 
-      saveCurrentChat(
-        updatedMessages
-      );
+      saveCurrentChat(updatedMessages);
     } catch (err) {
       console.error(
         "Chat error:",
@@ -1199,7 +1173,7 @@ function App() {
                       attachment.size /
                       1024
                     ).toFixed(1)}{" "}
-                    KB
+                    KB · {attachment.kind === "pdf" ? "PDF" : "Image"}
                   </span>
 
                 </div>
@@ -1234,6 +1208,7 @@ function App() {
               <input
                 ref={fileInputRef}
                 type="file"
+                accept=".pdf,application/pdf,image/*"
                 className="hidden-file-input"
                 onChange={
                   handleFileSelect

@@ -40,6 +40,8 @@ struct OllamaChatRequest {
 struct OllamaMessage {
     role: String,
     content: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    images: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,16 +137,71 @@ impl AIProvider for OllamaProvider {
             return Err("Chat request contains no messages.".to_string());
         }
 
-        // Send the full conversation history (not just the last message)
-        // so Ollama has the actual context to answer from.
-        let messages: Vec<OllamaMessage> = request
+        let mut messages: Vec<OllamaMessage> = request
             .messages
             .iter()
             .map(|message| OllamaMessage {
                 role: message.role.clone(),
                 content: message.content.clone(),
+                images: Vec::new(),
             })
             .collect();
+
+        // Attach files to the latest user message.
+        // Images are sent using Ollama's native `images` field.
+        // PDFs are decoded and their text is extracted locally before
+        // the request is sent to Ollama.
+        for attachment in &request.attachments {
+            let target = messages
+                .iter_mut()
+                .rev()
+                .find(|message| message.role == "user")
+                .ok_or_else(|| {
+                    "File attachment requires a user message.".to_string()
+                })?;
+
+            if attachment.kind == "image"
+                || attachment.mime_type.starts_with("image/")
+            {
+                target.images.push(attachment.data.clone());
+            } else if attachment.kind == "pdf"
+                || attachment.mime_type == "application/pdf"
+            {
+                let pdf_bytes = decode_base64(&attachment.data)
+                    .map_err(|e| {
+                        format!(
+                            "Could not decode PDF '{}': {}",
+                            attachment.name,
+                            e
+                        )
+                    })?;
+
+                let pdf_text =
+                    pdf_extract::extract_text_from_mem(&pdf_bytes)
+                        .map_err(|e| {
+                            format!(
+                                "Could not extract text from PDF '{}': {}",
+                                attachment.name,
+                                e
+                            )
+                        })?;
+
+                if pdf_text.trim().is_empty() {
+                    return Err(format!(
+                        "PDF '{}' does not contain extractable text. It may be a scanned/image-only PDF.",
+                        attachment.name
+                    ));
+                }
+
+                target.content.push_str(
+                    &format!(
+                        "\n\n--- Attached PDF: {} ---\n\n{}\n\n--- End Attached PDF ---",
+                        attachment.name,
+                        pdf_text
+                    )
+                );
+            }
+        }
 
         let body = OllamaChatRequest {
             model: request.model.clone(),
@@ -251,4 +308,42 @@ fn format_size(bytes: u64) -> String {
             bytes as f64 / (1024.0 * 1024.0)
         )
     }
+}
+
+fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
+    let mut output = Vec::with_capacity(input.len() * 3 / 4);
+    let mut buffer: u32 = 0;
+    let mut bits: u8 = 0;
+
+    for byte in input.bytes() {
+        if byte == b'=' {
+            break;
+        }
+
+        let value = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'\r' | b'\n' | b' ' | b'\t' => continue,
+            _ => {
+                return Err(
+                    "Invalid Base64 data.".to_string()
+                )
+            }
+        };
+
+        buffer = (buffer << 6) | value as u32;
+        bits += 6;
+
+        if bits >= 8 {
+            bits -= 8;
+            output.push(
+                ((buffer >> bits) & 0xff) as u8
+            );
+        }
+    }
+
+    Ok(output)
 }
