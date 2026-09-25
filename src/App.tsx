@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./App.css";
 
 interface RuntimeInfo {
@@ -15,29 +23,126 @@ interface ModelInfo {
   size: string;
 }
 
+interface Attachment {
+  name: string;
+  content: string;
+  size: number;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  attachment?: Attachment;
+}
+
+interface RecentChat {
+  id: number;
+  title: string;
+  messages: ChatMessage[];
+}
+
+interface SpeechRecognitionResultItem {
+  transcript: string;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionResultItem;
+}
+
+interface SpeechRecognitionEvent {
+  resultIndex: number;
+  results: {
+    [index: number]: SpeechRecognitionResult;
+    length: number;
+  };
+}
+
+interface SpeechRecognitionInstance {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+
+  start: () => void;
+  stop: () => void;
+
+  onresult:
+    | ((event: SpeechRecognitionEvent) => void)
+    | null;
+
+  onerror:
+    | ((event: { error: string }) => void)
+    | null;
+
+  onend: (() => void) | null;
+}
+
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognitionInstance;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
 }
 
 function App() {
   const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
   const [models, setModels] = useState<ModelInfo[]>([]);
 
-  const [selectedRuntime, setSelectedRuntime] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedRuntime, setSelectedRuntime] =
+    useState("");
 
-  const [loadingRuntimes, setLoadingRuntimes] = useState(true);
-  const [loadingModels, setLoadingModels] = useState(false);
+  const [selectedModel, setSelectedModel] =
+    useState("");
+
+  const [loadingRuntimes, setLoadingRuntimes] =
+    useState(true);
+
+  const [loadingModels, setLoadingModels] =
+    useState(false);
 
   const [error, setError] = useState("");
-  const [showPlayground, setShowPlayground] = useState(false);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [showPlayground, setShowPlayground] =
+    useState(false);
+
+  const [messages, setMessages] =
+    useState<ChatMessage[]>([]);
+
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [sending, setSending] =
+    useState(false);
+
+  const [recentChats, setRecentChats] =
+    useState<RecentChat[]>([]);
+
+  const [activeChatId, setActiveChatId] =
+    useState<number | null>(null);
+
+  const [copiedCode, setCopiedCode] =
+    useState<number | null>(null);
+
+  const [attachment, setAttachment] =
+    useState<Attachment | null>(null);
+
+  const [isListening, setIsListening] =
+    useState(false);
+
+  const messagesEndRef =
+    useRef<HTMLDivElement>(null);
+
+  const textareaRef =
+    useRef<HTMLTextAreaElement>(null);
+
+  const fileInputRef =
+    useRef<HTMLInputElement>(null);
+
+  const recognitionRef =
+    useRef<SpeechRecognitionInstance | null>(null);
 
   useEffect(() => {
     discoverRuntimes();
@@ -48,6 +153,12 @@ function App() {
       behavior: "smooth",
     });
   }, [messages, sending]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
 
   async function discoverRuntimes() {
     try {
@@ -60,14 +171,22 @@ function App() {
 
       setRuntimes(result);
     } catch (err) {
-      console.error("Runtime discovery error:", err);
-      setError("Failed to detect AI runtimes.");
+      console.error(
+        "Runtime discovery error:",
+        err
+      );
+
+      setError(
+        "Failed to detect AI runtimes."
+      );
     } finally {
       setLoadingRuntimes(false);
     }
   }
 
-  async function selectRuntime(runtimeId: string) {
+  async function selectRuntime(
+    runtimeId: string
+  ) {
     setSelectedRuntime(runtimeId);
     setSelectedModel("");
     setModels([]);
@@ -82,16 +201,20 @@ function App() {
     try {
       setLoadingModels(true);
 
-      const result = await invoke<ModelInfo[]>(
-        "provider_get_models",
-        {
-          runtimeId,
-        }
-      );
+      const result =
+        await invoke<ModelInfo[]>(
+          "provider_get_models",
+          {
+            runtimeId,
+          }
+        );
 
       setModels(result);
     } catch (err) {
-      console.error("Model detection error:", err);
+      console.error(
+        "Model detection error:",
+        err
+      );
 
       const runtime = runtimes.find(
         (item) => item.id === runtimeId
@@ -99,7 +222,8 @@ function App() {
 
       setError(
         `Could not connect to ${
-          runtime?.name ?? "the selected runtime"
+          runtime?.name ??
+          "the selected runtime"
         }.`
       );
     } finally {
@@ -108,12 +232,16 @@ function App() {
   }
 
   function continueToPlayground() {
-    if (!selectedRuntime || !selectedModel) {
+    if (
+      !selectedRuntime ||
+      !selectedModel
+    ) {
       return;
     }
 
     setError("");
     setMessages([]);
+    setActiveChatId(null);
     setShowPlayground(true);
   }
 
@@ -121,84 +249,433 @@ function App() {
     setShowPlayground(false);
     setMessages([]);
     setInput("");
+    setAttachment(null);
     setError("");
   }
 
-  function clearChat() {
+  function createNewChat() {
     setMessages([]);
+    setInput("");
+    setAttachment(null);
+    setError("");
+    setActiveChatId(null);
+
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+  }
+
+  function openRecentChat(
+    chat: RecentChat
+  ) {
+    setActiveChatId(chat.id);
+    setMessages(chat.messages);
+    setInput("");
+    setAttachment(null);
     setError("");
   }
 
-async function sendMessage() {
-  const message = input.trim();
-
-  if (
-    !message ||
-    !selectedRuntime ||
-    !selectedModel ||
-    sending
+  function saveCurrentChat(
+    updatedMessages: ChatMessage[]
   ) {
-    return;
+    if (updatedMessages.length === 0) {
+      return;
+    }
+
+    const firstUserMessage =
+      updatedMessages.find(
+        (message) =>
+          message.role === "user"
+      );
+
+    if (!firstUserMessage) {
+      return;
+    }
+
+    const title =
+      firstUserMessage.content.length > 40
+        ? `${firstUserMessage.content.slice(
+            0,
+            40
+          )}...`
+        : firstUserMessage.content;
+
+    setRecentChats((previous) => {
+      if (activeChatId !== null) {
+        return previous.map((chat) =>
+          chat.id === activeChatId
+            ? {
+                ...chat,
+                title,
+                messages:
+                  updatedMessages,
+              }
+            : chat
+        );
+      }
+
+      const newChat: RecentChat = {
+        id: Date.now(),
+        title,
+        messages: updatedMessages,
+      };
+
+      setActiveChatId(newChat.id);
+
+      return [newChat, ...previous];
+    });
   }
 
-  const userMessage: ChatMessage = {
-    role: "user",
-    content: message,
-  };
+  async function handleFileSelect(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file =
+      event.target.files?.[0];
 
-  // Send only the actual conversation to the local runtime.
-  const conversation = [
-    ...messages,
-    userMessage,
-  ];
+    if (!file) {
+      return;
+    }
 
-  setMessages(conversation);
-  setInput("");
-  setError("");
-  setSending(true);
+    setError("");
 
-  try {
-    const response = await invoke<{
-      message: {
-        role: string;
-        content: string;
-      };
-      done: boolean;
-      provider?: string;
-      model?: string;
-    }>("provider_chat", {
-      runtimeId: selectedRuntime,
-      request: {
-        model: selectedModel,
-        messages: conversation,
-        stream: false,
-      },
-    });
+    /*
+     * Keep the first implementation focused
+     * on text/code/data files that local LLMs
+     * can directly understand.
+     */
+    const allowedExtensions = [
+      ".txt",
+      ".md",
+      ".py",
+      ".js",
+      ".jsx",
+      ".ts",
+      ".tsx",
+      ".json",
+      ".csv",
+      ".html",
+      ".css",
+      ".xml",
+      ".yaml",
+      ".yml",
+      ".sql",
+      ".java",
+      ".c",
+      ".cpp",
+      ".h",
+      ".hpp",
+      ".rs",
+      ".go",
+      ".php",
+      ".rb",
+      ".sh",
+      ".bat",
+      ".log",
+    ];
 
-    const assistantMessage: ChatMessage = {
-      role: "assistant",
-      content: response.message.content,
+    const lowerName =
+      file.name.toLowerCase();
+
+    const isTextFile =
+      file.type.startsWith("text/") ||
+      allowedExtensions.some(
+        (extension) =>
+          lowerName.endsWith(extension)
+      );
+
+    if (!isTextFile) {
+      setError(
+        "For now, LocalAI Studio supports text, code and data files for chat attachments."
+      );
+
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError(
+        "Please select a file smaller than 5 MB."
+      );
+
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const content =
+        await file.text();
+
+      setAttachment({
+        name: file.name,
+        content,
+        size: file.size,
+      });
+    } catch (err) {
+      console.error(
+        "File reading error:",
+        err
+      );
+
+      setError(
+        "Could not read the selected file."
+      );
+    }
+
+    event.target.value = "";
+  }
+
+  function removeAttachment() {
+    setAttachment(null);
+
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+  }
+
+  function openFilePicker() {
+    fileInputRef.current?.click();
+  }
+
+  function startListening() {
+    const SpeechRecognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setError(
+        "Speech recognition is not available in this desktop WebView."
+      );
+
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    setError("");
+
+    const recognition =
+      new SpeechRecognition();
+
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (
+      event: SpeechRecognitionEvent
+    ) => {
+      let transcript = "";
+
+      for (
+        let i = event.resultIndex;
+        i < event.results.length;
+        i++
+      ) {
+        transcript +=
+          event.results[i][0]
+            .transcript;
+      }
+
+      if (transcript.trim()) {
+        setInput((previous) => {
+          const separator =
+            previous.trim().length > 0
+              ? " "
+              : "";
+
+          return (
+            previous +
+            separator +
+            transcript.trim()
+          );
+        });
+      }
     };
 
-    setMessages((previous) => [
-      ...previous,
-      assistantMessage,
-    ]);
-  } catch (err) {
-    console.error("Chat error:", err);
+    recognition.onerror = (
+      event
+    ) => {
+      console.error(
+        "Speech recognition error:",
+        event.error
+      );
 
-    setError(
-      typeof err === "string"
-        ? err
-        : "Failed to get a response from the local AI model."
-    );
-  } finally {
-    setSending(false);
+      setIsListening(false);
+
+      if (
+        event.error ===
+        "not-allowed"
+      ) {
+        setError(
+          "Microphone permission was denied."
+        );
+      } else {
+        setError(
+          "Speech recognition stopped. Please try again."
+        );
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current =
+      recognition;
+
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch (err) {
+      console.error(
+        "Could not start microphone:",
+        err
+      );
+
+      setIsListening(false);
+
+      setError(
+        "Could not start microphone input."
+      );
+    }
   }
-}
+
+  async function sendMessage() {
+    const message =
+      input.trim();
+
+    if (
+      !message &&
+      !attachment
+    ) {
+      return;
+    }
+
+    if (
+      !selectedRuntime ||
+      !selectedModel ||
+      sending
+    ) {
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
+
+    const userMessage:
+      ChatMessage = {
+      role: "user",
+      content: message,
+      attachment:
+        attachment ?? undefined,
+    };
+
+    const conversation = [
+      ...messages,
+      userMessage,
+    ];
+
+    /*
+     * The UI keeps the message clean,
+     * while the local model receives
+     * the attached file content.
+     */
+    const modelConversation =
+      conversation.map(
+        (chatMessage) => {
+          if (
+            chatMessage.attachment
+          ) {
+            return {
+              role: chatMessage.role,
+              content:
+                `${chatMessage.content}\n\n` +
+                `--- Attached file: ${chatMessage.attachment.name} ---\n\n` +
+                chatMessage.attachment.content +
+                `\n\n--- End attached file ---`,
+            };
+          }
+
+          return {
+            role: chatMessage.role,
+            content:
+              chatMessage.content,
+          };
+        }
+      );
+
+    setMessages(conversation);
+    setInput("");
+    setAttachment(null);
+    setError("");
+    setSending(true);
+
+    try {
+      const response =
+        await invoke<{
+          message: {
+            role: string;
+            content: string;
+          };
+          done: boolean;
+          provider?: string;
+          model?: string;
+        }>("provider_chat", {
+          runtimeId:
+            selectedRuntime,
+
+          request: {
+            model: selectedModel,
+
+            messages:
+              modelConversation,
+
+            stream: false,
+          },
+        });
+
+      const assistantMessage:
+        ChatMessage = {
+        role: "assistant",
+        content:
+          response.message.content,
+      };
+
+      const updatedMessages = [
+        ...conversation,
+        assistantMessage,
+      ];
+
+      setMessages(
+        updatedMessages
+      );
+
+      saveCurrentChat(
+        updatedMessages
+      );
+    } catch (err) {
+      console.error(
+        "Chat error:",
+        err
+      );
+
+      setError(
+        typeof err === "string"
+          ? err
+          : "Failed to get a response from the local AI model."
+      );
+    } finally {
+      setSending(false);
+    }
+  }
 
   function handleInputKeyDown(
-    event: React.KeyboardEvent<HTMLTextAreaElement>
+    event: KeyboardEvent<HTMLTextAreaElement>
   ) {
     if (
       event.key === "Enter" &&
@@ -209,157 +686,490 @@ async function sendMessage() {
     }
   }
 
-  const selectedRuntimeInfo = runtimes.find(
-    (runtime) => runtime.id === selectedRuntime
-  );
+  async function copyCode(
+    code: string,
+    index: number
+  ) {
+    try {
+      await navigator.clipboard.writeText(
+        code
+      );
 
-  const selectedModelInfo = models.find(
-    (model) => model.id === selectedModel
-  );
+      setCopiedCode(index);
+
+      setTimeout(() => {
+        setCopiedCode(null);
+      }, 2000);
+    } catch (err) {
+      console.error(
+        "Copy failed:",
+        err
+      );
+    }
+  }
+
+  function MarkdownMessage({
+    content,
+    messageIndex,
+  }: {
+    content: string;
+    messageIndex: number;
+  }) {
+    return (
+      <div className="markdown-content">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code({
+              inline,
+              className,
+              children,
+              ...props
+            }: any) {
+              const match =
+                /language-(\w+)/.exec(
+                  className || ""
+                );
+
+              const code =
+                String(children).replace(
+                  /\n$/,
+                  ""
+                );
+
+              if (inline) {
+                return (
+                  <code
+                    className="inline-code"
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                );
+              }
+
+              return (
+                <div className="code-block">
+
+                  <div className="code-header">
+
+                    <span className="code-language">
+                      {match
+                        ? match[1]
+                        : "code"}
+                    </span>
+
+                    <button
+                      className="copy-code-button"
+                      onClick={() =>
+                        copyCode(
+                          code,
+                          messageIndex
+                        )
+                      }
+                    >
+                      {copiedCode ===
+                      messageIndex
+                        ? "✓ Copied"
+                        : "Copy"}
+                    </button>
+
+                  </div>
+
+                  <pre>
+                    <code
+                      className={
+                        className || ""
+                      }
+                      {...props}
+                    >
+                      {children}
+                    </code>
+                  </pre>
+
+                </div>
+              );
+            },
+
+            p({ children }) {
+              return <p>{children}</p>;
+            },
+
+            h1({ children }) {
+              return <h1>{children}</h1>;
+            },
+
+            h2({ children }) {
+              return <h2>{children}</h2>;
+            },
+
+            h3({ children }) {
+              return <h3>{children}</h3>;
+            },
+
+            ul({ children }) {
+              return <ul>{children}</ul>;
+            },
+
+            ol({ children }) {
+              return <ol>{children}</ol>;
+            },
+
+            li({ children }) {
+              return <li>{children}</li>;
+            },
+
+            blockquote({ children }) {
+              return (
+                <blockquote>
+                  {children}
+                </blockquote>
+              );
+            },
+
+            table({ children }) {
+              return (
+                <div className="markdown-table-wrapper">
+                  <table>
+                    {children}
+                  </table>
+                </div>
+              );
+            },
+
+            th({ children }) {
+              return <th>{children}</th>;
+            },
+
+            td({ children }) {
+              return <td>{children}</td>;
+            },
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  const selectedRuntimeInfo =
+    runtimes.find(
+      (runtime) =>
+        runtime.id ===
+        selectedRuntime
+    );
+
+  const selectedModelInfo =
+    models.find(
+      (model) =>
+        model.name ===
+        selectedModel
+    );
 
   /*
    * ---------------------------------------------------------
-   * PLAYGROUND
+   * CHAT PLAYGROUND
    * ---------------------------------------------------------
    */
 
   if (showPlayground) {
     return (
-      <div className="playground">
+      <div className="chat-layout">
 
-        <header className="playground-header">
-          <div className="playground-brand">
-            <div className="logo small-logo">
-              ◉
+        {/* SIDEBAR */}
+
+        <aside className="chat-sidebar">
+
+          <div className="sidebar-top">
+
+            <div className="sidebar-brand">
+
+              <div className="sidebar-logo">
+                ◉
+              </div>
+
+              <div>
+                <strong>
+                  LocalAI Studio
+                </strong>
+
+                <span>
+                  Local AI
+                </span>
+              </div>
+
             </div>
 
-            <div>
-              <h2>LocalAI Studio</h2>
-              <span>Local AI Playground</span>
-            </div>
-          </div>
-
-          <div className="playground-runtime">
-            <span className="runtime-dot">
-              ●
-            </span>
-
-            <span>
-              {selectedRuntimeInfo?.name}
-            </span>
-
-            <span className="header-separator">
-              /
-            </span>
-
-            <span>
-              {selectedModelInfo?.name}
-            </span>
-          </div>
-
-          <div className="playground-actions">
             <button
-              className="header-button"
-              onClick={clearChat}
-              disabled={messages.length === 0}
+              className="new-chat-button"
+              onClick={createNewChat}
             >
-              New Chat
+              <span className="new-chat-icon">
+                +
+              </span>
+
+              <span>
+                New chat
+              </span>
             </button>
 
+            <div className="sidebar-section-title">
+              Recent
+            </div>
+
+            <div className="recent-chats">
+
+              {recentChats.length === 0 ? (
+                <div className="no-recent-chats">
+                  No recent chats
+                </div>
+              ) : (
+                recentChats.map(
+                  (chat) => (
+                    <button
+                      key={chat.id}
+                      className={`recent-chat ${
+                        activeChatId ===
+                        chat.id
+                          ? "active"
+                          : ""
+                      }`}
+                      onClick={() =>
+                        openRecentChat(
+                          chat
+                        )
+                      }
+                    >
+                      <span className="recent-chat-icon">
+                        ◌
+                      </span>
+
+                      <span className="recent-chat-title">
+                        {chat.title}
+                      </span>
+                    </button>
+                  )
+                )
+              )}
+
+            </div>
+
+          </div>
+
+          <div className="sidebar-bottom">
+
+            <div className="sidebar-model">
+
+              <span className="sidebar-status-dot"></span>
+
+              <div>
+
+                <small>
+                  {
+                    selectedRuntimeInfo?.name
+                  }
+                </small>
+
+                <strong>
+                  {
+                    selectedModelInfo?.name ??
+                    selectedModel
+                  }
+                </strong>
+
+              </div>
+
+            </div>
+
             <button
-              className="header-button"
+              className="sidebar-back-button"
               onClick={goBack}
             >
-              ← Back
+              ← Change model
             </button>
-          </div>
-        </header>
 
-        <main className="chat-container">
+          </div>
+
+        </aside>
+
+        {/* MAIN CHAT */}
+
+        <main className="chat-main">
+
+          {/* HEADER */}
+
+          <header className="chat-header">
+
+            <div className="chat-header-model">
+
+              <div className="header-model-dot"></div>
+
+              <div>
+
+                <strong>
+                  {
+                    selectedModelInfo?.name ??
+                    selectedModel
+                  }
+                </strong>
+
+                <span>
+                  {
+                    selectedRuntimeInfo?.name
+                  }
+                </span>
+
+              </div>
+
+            </div>
+
+            <button
+              className="header-icon-button"
+              onClick={createNewChat}
+              title="New chat"
+            >
+              +
+            </button>
+
+          </header>
+
+          {/* MESSAGES */}
 
           <div className="chat-messages">
 
-            {messages.length === 0 && (
-              <div className="chat-welcome">
+            <div className="messages-container">
 
-                <div className="chat-welcome-icon">
-                  ◉
+              {messages.length === 0 && (
+                <div className="chat-empty-state">
+
+                  <div className="empty-logo">
+                    ◉
+                  </div>
+
+                  <h1>
+                    How can I help you?
+                  </h1>
+
+                  <p>
+                    Chat privately with
+                    your local AI model.
+                  </p>
+
                 </div>
+              )}
 
-                <h1>
-                  Local AI Playground
-                </h1>
+              {messages.map(
+                (message, index) => (
+                  <div
+                    key={index}
+                    className={`message-row ${
+                      message.role
+                    }`}
+                  >
 
-                <p>
-                  Start a conversation with your
-                  local model.
-                </p>
+                    <div
+                      className={`message-avatar ${
+                        message.role
+                      }-avatar`}
+                    >
+                      {message.role ===
+                      "user"
+                        ? "U"
+                        : "AI"}
+                    </div>
 
-                <div className="model-badge">
-                  <span>
-                    {selectedRuntimeInfo?.name}
-                  </span>
+                    <div className="message-content">
 
-                  <span>
-                    •
-                  </span>
+                      <div className="message-role">
 
-                  <span>
-                    {selectedModelInfo?.name}
-                  </span>
+                        {message.role ===
+                        "user"
+                          ? "You"
+                          : "Local AI"}
+
+                      </div>
+
+                      {message.attachment && (
+                        <div className="message-attachment">
+
+                          <span className="attachment-icon">
+                            📎
+                          </span>
+
+                          <div>
+                            <strong>
+                              {
+                                message
+                                  .attachment
+                                  .name
+                              }
+                            </strong>
+
+                            <small>
+                              Attached file
+                            </small>
+                          </div>
+
+                        </div>
+                      )}
+
+                      {message.role ===
+                      "assistant" ? (
+                        <MarkdownMessage
+                          content={
+                            message.content
+                          }
+                          messageIndex={
+                            index
+                          }
+                        />
+                      ) : (
+                        <div className="message-text">
+                          {
+                            message.content
+                          }
+                        </div>
+                      )}
+
+                    </div>
+
+                  </div>
+                )
+              )}
+
+              {sending && (
+                <div className="message-row assistant">
+
+                  <div className="message-avatar assistant-avatar">
+                    AI
+                  </div>
+
+                  <div className="message-content">
+
+                    <div className="message-role">
+                      Local AI
+                    </div>
+
+                    <div className="typing-indicator">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </div>
+
+                  </div>
+
                 </div>
+              )}
 
-              </div>
-            )}
-
-            {messages.map((message, index) => (
               <div
-                key={index}
-                className={`message-row ${message.role}`}
-              >
-                <div className="message-avatar">
-                  {message.role === "user"
-                    ? "You"
-                    : "AI"}
-                </div>
+                ref={messagesEndRef}
+              />
 
-                <div className="message-content">
-                  <div className="message-role">
-                    {message.role === "user"
-                      ? "You"
-                      : "Local AI"}
-                  </div>
-
-                  <div className="message-text">
-                    {message.content}
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {sending && (
-              <div className="message-row assistant">
-                <div className="message-avatar">
-                  AI
-                </div>
-
-                <div className="message-content">
-                  <div className="message-role">
-                    Local AI
-                  </div>
-
-                  <div className="typing-indicator">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
+            </div>
 
           </div>
+
+          {/* ERROR */}
 
           {error && (
             <div className="chat-error">
@@ -367,36 +1177,132 @@ async function sendMessage() {
             </div>
           )}
 
-          <div className="chat-input-wrapper">
+          {/* COMPOSER */}
 
-            <div className="chat-input-box">
+          <div className="chat-composer-wrapper">
+
+            {attachment && (
+              <div className="attachment-preview">
+
+                <div className="attachment-preview-icon">
+                  📎
+                </div>
+
+                <div className="attachment-preview-info">
+
+                  <strong>
+                    {attachment.name}
+                  </strong>
+
+                  <span>
+                    {(
+                      attachment.size /
+                      1024
+                    ).toFixed(1)}{" "}
+                    KB
+                  </span>
+
+                </div>
+
+                <button
+                  className="attachment-remove"
+                  onClick={
+                    removeAttachment
+                  }
+                  title="Remove file"
+                >
+                  ×
+                </button>
+
+              </div>
+            )}
+
+            <div className="composer-box">
+
+              {/* FILE UPLOAD */}
+
+              <button
+                className="composer-plus"
+                onClick={
+                  openFilePicker
+                }
+                title="Attach file"
+              >
+                +
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden-file-input"
+                onChange={
+                  handleFileSelect
+                }
+              />
+
+              {/* INPUT */}
 
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(event) =>
-                  setInput(event.target.value)
+                  setInput(
+                    event.target.value
+                  )
                 }
-                onKeyDown={handleInputKeyDown}
-                placeholder="Ask your local AI..."
+                onKeyDown={
+                  handleInputKeyDown
+                }
+                placeholder="Message your local AI..."
                 disabled={sending}
                 rows={1}
               />
 
+              {/* MICROPHONE */}
+
               <button
-                className="send-button"
-                onClick={sendMessage}
-                disabled={
-                  !input.trim() ||
-                  sending
+                className={`composer-mic ${
+                  isListening
+                    ? "mic-active"
+                    : ""
+                }`}
+                title={
+                  isListening
+                    ? "Stop listening"
+                    : "Voice input"
+                }
+                onClick={
+                  startListening
                 }
               >
-                {sending ? "..." : "Send"}
+                {isListening
+                  ? "●"
+                  : "🎙"}
+              </button>
+
+              {/* SEND */}
+
+              <button
+                className="composer-send"
+                onClick={
+                  sendMessage
+                }
+                disabled={
+                  (!input.trim() &&
+                    !attachment) ||
+                  sending
+                }
+                title="Send"
+              >
+                {sending
+                  ? "..."
+                  : "↑"}
               </button>
 
             </div>
 
-            <div className="input-hint">
-              Press Enter to send • Shift + Enter
+            <div className="composer-hint">
+              Enter to send · Shift + Enter
               for a new line
             </div>
 
@@ -416,6 +1322,7 @@ async function sendMessage() {
 
   return (
     <div className="app">
+
       <main className="welcome-card">
 
         <div className="logo">
@@ -427,7 +1334,8 @@ async function sendMessage() {
         </h1>
 
         <p className="subtitle">
-          Discover and manage your local AI models.
+          Discover and manage your local AI
+          models.
         </p>
 
         <section className="setup-section">
@@ -441,7 +1349,8 @@ async function sendMessage() {
               Detecting local AI runtimes...
             </div>
           ) : runtimes.filter(
-              (runtime) => runtime.installed
+              (runtime) =>
+                runtime.installed
             ).length > 0 ? (
             <select
               value={selectedRuntime}
@@ -511,7 +1420,8 @@ async function sendMessage() {
                 >
                   {model.name}
 
-                  {model.size !== "Unknown"
+                  {model.size !==
+                  "Unknown"
                     ? ` • ${model.size}`
                     : ""}
                 </option>
@@ -551,7 +1461,9 @@ async function sendMessage() {
             <span>
               Runtime:{" "}
               <strong>
-                {selectedRuntimeInfo.name}
+                {
+                  selectedRuntimeInfo.name
+                }
               </strong>
             </span>
 
@@ -570,12 +1482,15 @@ async function sendMessage() {
             !selectedRuntime ||
             !selectedModel
           }
-          onClick={continueToPlayground}
+          onClick={
+            continueToPlayground
+          }
         >
           Continue
         </button>
 
       </main>
+
     </div>
   );
 }

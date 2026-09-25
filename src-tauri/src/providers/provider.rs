@@ -15,23 +15,24 @@ pub struct ProviderModel {
     pub size: String,
 }
 
-/// A single message in a conversation.
-///
-/// This is provider-neutral. Each runtime will translate
-/// these messages into its own API format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
 }
 
-/// Generic chat request used by LocalAI Studio.
-///
-/// The frontend sends this structure regardless of
-/// which runtime is being used.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatAttachment {
+    pub name: String,
+    pub mime_type: String,
+    pub data: String,
+    pub kind: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatRequest {
     pub model: String,
+
     pub messages: Vec<ChatMessage>,
 
     #[serde(default)]
@@ -39,12 +40,11 @@ pub struct ChatRequest {
 
     #[serde(default)]
     pub stream: bool,
+
+    #[serde(default)]
+    pub attachments: Vec<ChatAttachment>,
 }
 
-/// Generic response returned by every provider.
-///
-/// Provider-specific response formats are converted
-/// into this structure before reaching the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatResponse {
     pub message: ChatMessage,
@@ -105,11 +105,6 @@ pub trait AIProvider {
         )
     }
 
-    /// Provider-neutral chat interface.
-    ///
-    /// LocalAI Studio sends the same ChatRequest to every
-    /// provider. Each provider implementation is responsible
-    /// for translating it into its own native API format.
     async fn chat(
         &self,
         _request: &ChatRequest,
