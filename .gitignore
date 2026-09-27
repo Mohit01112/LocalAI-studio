@@ -1,72 +1,82 @@
-# Dependencies
+﻿# Dependencies
 node_modules/
-.pnpm-store/
-.yarn/
-.yarn-cache/
+**/node_modules/
 
-# Build output
+# Build outputs
 dist/
+dist-ssr/
 build/
-.vite/
+out/
+coverage/
 
-# Tauri build output
+# Tauri and Rust build artifacts
 src-tauri/target/
+target/
+**/target/
+**/*.rs.bk
 
-# Environment variables
+# Environment variables and secrets
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
 
 # Logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
-# OS files
+# Operating system files
 .DS_Store
 Thumbs.db
 desktop.ini
+ehthumbs.db
 
-# IDE / Editor
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
+# IDE and editor settings
+.vscode/
 .idea/
 *.swp
 *.swo
-
-# Rust
-Cargo.lock
-target/
-
-# Tauri generated files
-src-tauri/gen/
+*~
 
 # Temporary files
+tmp/
+temp/
 *.tmp
-*.temp
 *.bak
+*.old
 
-# Local AI / model files
-models/
-ollama/
-*.gguf
-*.bin
-*.safetensors
-
-# Test / coverage
-coverage/
-.nyc_output/
-
-# Python (if used later)
+# Python artifacts
 __pycache__/
 *.py[cod]
 .venv/
 venv/
-env/
 
-# Windows
-*.exe
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Local AI model files
+*.gguf
+*.ggml
+*.safetensors
+*.onnx
+*.pt
+*.pth
+*.bin
+
+# Installer and packaged application outputs
 *.msi
-*.pdb
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm

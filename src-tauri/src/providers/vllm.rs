@@ -52,7 +52,8 @@ struct VllmChatResponse {
 #[derive(Debug, Deserialize)]
 struct VllmChoice {
     message: VllmMessage,
-    finish_reason: Option<String>,
+    #[serde(rename = "finish_reason")]
+    _finish_reason: Option<String>,
 }
 
 pub struct VllmProvider;

@@ -52,7 +52,8 @@ struct GPT4AllChatResponse {
 #[derive(Debug, Deserialize)]
 struct GPT4AllChoice {
     message: GPT4AllMessage,
-    finish_reason: Option<String>,
+    #[serde(rename = "finish_reason")]
+    _finish_reason: Option<String>,
 }
 
 pub struct GPT4AllProvider;

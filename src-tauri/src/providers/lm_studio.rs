@@ -52,7 +52,8 @@ struct LMStudioChatResponse {
 #[derive(Debug, Deserialize)]
 struct LMStudioChoice {
     message: LMStudioMessage,
-    finish_reason: Option<String>,
+    #[serde(rename = "finish_reason")]
+    _finish_reason: Option<String>,
 }
 
 pub struct LMStudioProvider;

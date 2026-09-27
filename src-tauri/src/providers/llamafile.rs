@@ -52,7 +52,8 @@ struct LlamafileChatResponse {
 #[derive(Debug, Deserialize)]
 struct LlamafileChoice {
     message: LlamafileMessage,
-    finish_reason: Option<String>,
+    #[serde(rename = "finish_reason")]
+    _finish_reason: Option<String>,
 }
 
 pub struct LlamafileProvider;

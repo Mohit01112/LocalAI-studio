@@ -52,7 +52,8 @@ struct LlamaCppChatResponse {
 #[derive(Debug, Deserialize)]
 struct LlamaCppChoice {
     message: LlamaCppMessage,
-    finish_reason: Option<String>,
+    #[serde(rename = "finish_reason")]
+    _finish_reason: Option<String>,
 }
 
 pub struct LlamaCppProvider;

@@ -52,7 +52,8 @@ struct KoboldCppChatResponse {
 #[derive(Debug, Deserialize)]
 struct KoboldCppChoice {
     message: KoboldCppMessage,
-    finish_reason: Option<String>,
+    #[serde(rename = "finish_reason")]
+    _finish_reason: Option<String>,
 }
 
 pub struct KoboldCppProvider;
