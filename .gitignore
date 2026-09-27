@@ -80,3 +80,5 @@ venv/
 *.AppImage
 *.deb
 *.rpm
+
+detected models.mp4
