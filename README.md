@@ -12,27 +12,11 @@ desktop interface.
 > **Status:** Initial release
 
 ------------------------------------------------------------------------
+## Demo Video
 
-## Demo
+Watch LocalAI Studio in action, including runtime detection, model discovery, and chatting with a local AI model.
 
-Add your screen recordings to the `docs/videos/` folder in this
-repository, then update the filenames below if needed. GitHub renders
-MP4 files linked from a README, and these embedded videos let visitors
-see the app in action.
-
-### App overview
-
-```{=html}
-<!-- Add docs/videos/app-overview.mp4 to the repository -->
-```
-https://github.com/Mohit01112/LocalAI-studio/blob/main/docs/videos/app-overview.mp4
-
-### Runtime and model detection
-
-```{=html}
-<!-- Add docs/videos/runtime-model-detection.mp4 to the repository -->
-```
-https://github.com/Mohit01112/LocalAI-studio/blob/main/docs/videos/runtime-model-detection.mp4
+[Watch the Demo](docs/videos/local-ai-studio-demo.mp4)
 
 ### Chat with a local model
 
