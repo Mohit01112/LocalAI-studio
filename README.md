@@ -16,19 +16,7 @@ desktop interface.
 
 Watch LocalAI Studio in action, including runtime detection, model discovery, and chatting with a local AI model.
 
-[Watch the Demo](docs/videos/local-ai-studio-demo.mp4)
-
-### Chat with a local model
-
-```{=html}
-<!-- Add docs/videos/local-model-chat.mp4 to the repository -->
-```
-https://github.com/Mohit01112/LocalAI-studio/blob/main/docs/videos/local-model-chat.mp4
-
-**Tip:** For a video to display inline on GitHub, upload it to the
-repository and link to its raw file URL. If GitHub does not render the
-video inline in your README, use a thumbnail image that links to the MP4
-instead.
+https://drive.google.com/file/d/1tMfnGwZzXB-2HIe8qMjRwiePbuG1TeF3/view?usp=drive_link
 
 ------------------------------------------------------------------------
 
