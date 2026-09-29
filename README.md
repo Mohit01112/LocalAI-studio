@@ -9,7 +9,7 @@ desktop interface.
 
 > **Version:** 0.1.0\
 > **Platform:** Windows\
-> **Status:** Initial release
+> **Status:** Initial release 
 
 ------------------------------------------------------------------------
 ## Demo Video
